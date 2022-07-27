@@ -3,20 +3,22 @@
 #include <direct.h>
 #include <string.h>
 #include <fstream>
+#include <Shlwapi.h>
+#pragma comment(lib, "Shlwapi.lib")
 
 #include "bdb/db_cxx.h"
 
 #ifdef _DEBUG
 #pragma comment(lib, "debug/libdb44d.lib")
 #else
-#pragma comment(lib, "release/libdb181.lib")
+#pragma comment(lib, "release/libdb44d.lib")
 #endif // DEBUG
 
-const char *progname = "DTSSEnv";
-const char *data_dir = "data";
-const char *home = "C:\\Users\\Administrator\\Desktop\\dbfs";
-const char * err1 = "DbEnv::open: No such file or directory";
-const char * err2 = "Db::open: No such file or directory";
+const char* progname = "DTSSEnv";
+const char* data_dir = "data";
+const char* home = "C:\\Users\\Administrator\\Desktop\\dbfs";
+const char* err1 = "DbEnv::open: No such file or directory";
+const char* err2 = "Db::open: No such file or directory";
 
 //#define	DRTE	"raw"
 #define	DRTE "client.dbfs"
@@ -65,10 +67,10 @@ int CDBMgr::open()
 		//	DB_CREATE | DB_INIT_REP | DB_INIT_TXN  | DB_INIT_MPOOL | DB_INIT_LOG, 0);
 
 		m_pDbEnv->open(home,
-			DB_CREATE | DB_INIT_LOCK | DB_INIT_MPOOL , 0);
+			DB_CREATE | DB_INIT_LOCK | DB_INIT_MPOOL, 0);
 		//m_pDbEnv->open(home, DB_CREATE, 0);
 	}
-	catch (DbException &dbe) {
+	catch (DbException& dbe) {
 		cerr << "EnvExample: " << dbe.what() << "\n";
 		if (!strcmp(dbe.what(), err1)) {
 			cout << "Please check whether "
@@ -87,7 +89,7 @@ int CDBMgr::open()
 	string value = "";
 
 	Dbc* dbc;
-	m_pDBAlarm2->cursor(NULL,&dbc,0);
+	m_pDBAlarm2->cursor(NULL, &dbc, 0);
 	Dbc* dbc2;
 	m_pDBAlarm1->cursor(NULL, &dbc2, 0);
 
@@ -120,19 +122,182 @@ int CDBMgr::open()
 		str4 = str1 + str2 + subreplace(str3, "/", "\\");
 
 		if (value[dbKey.get_size() - 1] == 0x2f) {
-			int s=_mkdir(str4.c_str());
+			int s = _mkdir(str4.c_str());
 			//cout << s << endl;;
 		}
 		else {
 			cout << str4 << " : " << endl;;
 			ofstream outFile(str4, ios::out | ios::binary);
-			outFile.write((char*)dbValue.get_data(), dbValue.get_size());
-			outFile.close();
+
+			IStream* data = SHCreateMemStream((byte*)dbValue.get_data(), dbValue.get_size());
+
+			int type = ReadUInt32(data);//类型
+			ReadUInt32(data);//时间戳
+			ReadUInt32(data);//时间戳
+			int lens = ReadUInt32(data);//解压后大小
+			int len = ReadUInt32(data);//解压前大小
+
+			byte* bufferx = (byte*)malloc(lens);
+			byte* valuexxs = (byte*)ReadUIntN(data, len);//取出数据 *前面已经取出20字节数据,这里直接取数据无需删除前20字节
+
+			if (type == 5) {
+				LDecode(valuexxs, len, bufferx);
+				outFile.write((char*)bufferx, lens);
+				outFile.close();
+			}
+			else {
+				outFile.write((char*)valuexxs, len);
+				outFile.close();
+			}
+
+			//outFile.write(valuex, dbValue.get_size());
+			//outFile.close();
+			free(bufferx);
+			free(valuexxs);
+			data->Release();
 		}
 		delete value;
 	}
 	return 0;
 }
+
+
+
+char* CDBMgr::ReadUIntN(IStream* pStream, SIZE_T size)
+{
+	char* imagex = (char*)malloc(size);
+	pStream->Read(imagex, size, NULL);
+	return imagex;
+}
+
+//取出int
+int CDBMgr::ReadUInt32(IStream* pStream)
+{
+	unsigned char buf[4];
+	pStream->Read(buf, 4, NULL);
+	int ret = ((buf[3] << 24) | (buf[2] << 16) | (buf[1] << 8) | (buf[0] << 0));
+	return ret;
+}
+
+//取出short
+short CDBMgr::ReadUInt16(IStream* pStream)
+{
+	unsigned char buf[2];
+	pStream->Read(buf, 2, NULL);
+	short ret = ((buf[1] << 8) | (buf[0] << 0));
+	return ret;
+}
+
+//取出char
+char CDBMgr::ReadUInt8(IStream* pStream)
+{
+	unsigned char buf[1];
+	pStream->Read(buf, 1, NULL);
+	char ret = (buf[0] << 0);
+	return ret;
+}
+
+//跳过字节
+void CDBMgr::ReadRun(IStream* pStream, int size)
+{
+	LARGE_INTEGER dlibMove;
+	dlibMove.QuadPart = size;
+	//pStream->Seek(dlibMove, STREAM_SEEK_SET, NULL);
+	pStream->Seek(dlibMove, STREAM_SEEK_CUR, NULL);
+}
+
+
+int CDBMgr::xx(char* pSrcData)
+{
+	int A = (unsigned char)*pSrcData++;
+	int B = (unsigned char)*pSrcData++;
+	int C = (unsigned char)*pSrcData++;
+	int D = (unsigned char)*pSrcData++;
+	int ret = ((D << 24) | (C << 16) | (B << 8) | (A << 0));
+
+	return ret;
+}
+
+int CDBMgr::xxx(char* pSrcData, int x)
+{
+	for (int i = 0; i < 4 * (x - 1); i++) {
+		*pSrcData++;
+	}
+
+	int A = (unsigned char)*pSrcData++;
+	int B = (unsigned char)*pSrcData++;
+	int C = (unsigned char)*pSrcData++;
+	int D = (unsigned char)*pSrcData++;
+
+	int ret = ((D << 24) | (C << 16) | (B << 8) | (A << 0));
+	return ret;
+}
+
+
+int CDBMgr::LDecode(byte* a2, int xss, byte* a3)
+{
+
+	int N = 4096;
+	int F = 18;
+	int THRESHOLD = 2;
+
+	unsigned char text_buf[4096 + 18 - 1];
+
+	int  i, j, k, r, c;
+	unsigned int  flags;
+
+	int ii = 0;
+	int iii = 0;
+	int ix = 0;
+
+	ix = xss;
+
+	for (i = 0; i < N - F; i++) {
+		text_buf[i] = ' ';
+	}
+	r = N - F;  flags = 0;
+	for (; ; ) {
+		if (((flags >>= 1) & 256) == 0) {
+			if (ix == 0) {
+				break;
+			}
+			c = a2[iii++];
+			ix -= 1;
+			flags = c | 0xff00;
+		}
+		if (flags & 1) {
+			if (ix == 0) {
+				break;
+			}
+			c = a2[iii++];
+			ix -= 1;
+			a3[ii++] = c;
+			text_buf[r++] = c;
+			r &= (N - 1);
+		}
+		else {
+			if (ix == 0) {
+				break;
+			}
+			if (ix == 0) {
+				break;
+			}
+			i = a2[iii++];
+			j = a2[iii++];
+			ix -= 2;
+			i |= ((j & 0xf0) << 4);
+			j = (j & 0x0f) + THRESHOLD;
+			for (k = 0; k <= j; k++) {
+				c = text_buf[(i + k) & (N - 1)];
+				a3[ii++] = c;
+				text_buf[r++] = c;
+				r &= (N - 1);
+			}
+		}
+	}
+	return *a3;
+}
+
 
 /*
  函数说明：对字符串中所有指定的子串进行替换
@@ -185,7 +350,7 @@ Db* CDBMgr::openDB(const char* dbFile)
 		pDb->open(NULL, DRTE,
 			dbFile, DB_BTREE, DB_CREATE, 0664);
 	}
-	catch (DbException &dbe) {
+	catch (DbException& dbe) {
 		cerr << "EnvExample: " << dbe.what() << "\n";
 		if (!strcmp(dbe.what(), err2)) {
 			cout << "Please check whether data dir \"" << data_dir
@@ -304,7 +469,7 @@ int CDBMgr::putString(Db* pDb, const char* key, const char* value)
 }
 
 
-int CDBMgr::putString(Db* pDb, const char* key, const char* value,int len)
+int CDBMgr::putString(Db* pDb, const char* key, const char* value, int len)
 {
 	Dbt dbKey((char*)key, strlen(key));
 	Dbt dbValue((char*)value, len);
@@ -324,8 +489,8 @@ int CDBMgr::getString(Db* pDb, const char* key, string& value)
 	int ret = pDb->get(NULL, &dbKey, &data, 0);
 	if (ret == 0)
 	{
-		char *key_string = (char *)dbKey.get_data();
-		char *data_string = (char *)data.get_data();
+		char* key_string = (char*)dbKey.get_data();
+		char* data_string = (char*)data.get_data();
 		cout << key_string << " : " << data_string << "\n";
 		value = (const char*)data.get_data();
 		pDb->sync(0);
