@@ -1,15 +1,12 @@
 ﻿
+#include "DBFS.h"
 
-using namespace std;
-
-#include "CDBMgr.h"
-
-int
-main(int argc, char **argv)
+int main(int argc, char **argv)
 {
-	CDBMgr::Instance().open();
+	//自行准备文件至data目录
+	DBFS::Instance().open("./data/char.dbfs");
 
-	CDBMgr::Instance().close();
+	DBFS::Instance().close();
 
 
 	return 0;
