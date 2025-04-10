@@ -46,16 +46,83 @@ int compare_blocks_ignore_case(
 	return cmp_result;
 }
 
+void LDecode(const uint8_t* buf, int len, uint8_t* out)
+{
+	int N = 4096;
+	int F = 18;
+	int THRESHOLD = 2;
+
+	uint8_t text_buf[4096 + 18 - 1];
+
+	int  i, j, k, r, c;
+	uint32_t  flags;
+
+	int ii = 0;
+	int iii = 0;
+	int ix = 0;
+
+	ix = len;
+
+	for (i = 0; i < N - F; i++) {
+		text_buf[i] = ' ';
+	}
+	r = N - F;  flags = 0;
+	for (; ; ) {
+		if (((flags >>= 1) & 256) == 0) {
+			if (ix == 0) {
+				break;
+			}
+			c = buf[iii++];
+			ix -= 1;
+			flags = c | 0xff00;
+		}
+		if (flags & 1) {
+			if (ix == 0) {
+				break;
+			}
+			c = buf[iii++];
+			ix -= 1;
+			out[ii++] = c;
+			text_buf[r++] = c;
+			r &= (N - 1);
+		}
+		else {
+			if (ix == 0) {
+				break;
+			}
+			if (ix == 0) {
+				break;
+			}
+			i = buf[iii++];
+			j = buf[iii++];
+			ix -= 2;
+			i |= ((j & 0xf0) << 4);
+			j = (j & 0x0f) + THRESHOLD;
+			for (k = 0; k <= j; k++) {
+				c = text_buf[(i + k) & (N - 1)];
+				out[ii++] = c;
+				text_buf[r++] = c;
+				r &= (N - 1);
+			}
+		}
+	}
+}
+
+uint32_t read_le_u32(const uint8_t* p) {
+	return p[0] | (p[1] << 8) | (p[2] << 16) | (p[3] << 24);
+}
+
+
 DBFS& DBFS::Instance()
 {
 	static DBFS agent;
 	return agent;
 }
 
-int DBFS::open(string name)
+void DBFS::open(string name)
 {
 	if (m_pDbEnv != NULL)
-		return -1;
+		return;
 	m_pDbEnv = new DbEnv((u_int32_t)0);
 	try {
 		m_pDbEnv->open(NULL, DB_CREATE | DB_INIT_MPOOL | DB_PRIVATE | DB_EXCL, 0);
@@ -64,7 +131,7 @@ int DBFS::open(string name)
 		cerr << "EnvExample: " << dbe.what() << endl;
 		delete m_pDbEnv;
 		m_pDbEnv = NULL;
-		return -1;
+		return;
 	}
 
 	config = openDB_0(name, "config");
@@ -74,26 +141,11 @@ int DBFS::open(string name)
 
 	//false  true
 	bool 单个 = false;
-	bool 文件 = false;
+	bool 文件 = true;
 
 	if (文件) {
 		string key = "/PlatformDepend/diff_jd";
-		string value = "";
-		int ret = getString(file, key, value);
-		if (ret == 0) {
-			cout << "key: " << key << " value:  " << endl;
-			uint32_t previewSize = std::min<uint32_t>(20, value.size());
-			for (uint32_t i = 0; i < previewSize; ++i) {
-				printf("%02X ", static_cast<uint8_t>(value.data()[i]));
-			}
-			size_t lastSlashPos = key.rfind('/');
-			if (lastSlashPos != std::string::npos && lastSlashPos < key.size() - 1) {
-				string fileName = key.substr(lastSlashPos + 1);
-				ofstream outFile("./data/" + fileName, ios::out | ios::binary);
-				outFile.write((char*)value.data(), value.size());
-				outFile.close();
-			}
-		}
+		outfile(key);
 	}
 	else {
 		if (单个) {
@@ -116,11 +168,9 @@ int DBFS::open(string name)
 
 		}
 	}
-
-	return 0;
 }
 
-int DBFS::close()
+void DBFS::close()
 {
 	closeDB(config);
 	closeDB(file);
@@ -132,7 +182,6 @@ int DBFS::close()
 		delete m_pDbEnv;
 		m_pDbEnv = NULL;
 	}
-	return 0;
 }
 
 Db* DBFS::openDB(string name, string dbName)
@@ -215,6 +264,7 @@ int DBFS::getStringAll(Db* pDb, string& key, vector<string>& value)
 	int ret = dbc->get(&dbKey, &data, DB_SET);
 	if (ret == DB_NOTFOUND) {
 		cerr << DbEnv::strerror(ret) << endl;
+		dbc->close();
 		return -1;
 	}
 	else {
@@ -227,3 +277,74 @@ int DBFS::getStringAll(Db* pDb, string& key, vector<string>& value)
 
 	return 0;
 }
+
+
+void DBFS::outfile(string& key) {
+	string value = "";
+	int ret = getString(file, key, value);
+	if (ret == 0) {
+		cout << "key: " << key << " value:  ";
+		uint32_t previewSize = std::min<uint32_t>(20, value.size());
+		for (uint32_t i = 0; i < previewSize; ++i) {
+			printf("%02X ", static_cast<uint8_t>(value.data()[i]));
+		}
+		cout << endl;
+
+		size_t lastSlashPos = key.rfind('/');
+		if (lastSlashPos != std::string::npos && lastSlashPos < key.size() - 1) {
+			string fileName = key.substr(lastSlashPos + 1);
+
+			const size_t HEADER_SIZE = 20;
+			if (value.size() < HEADER_SIZE)
+			{
+				std::cerr << "数据不够" << std::endl;
+				return;
+			}
+
+			const uint8_t* ptr = (uint8_t*)value.data();
+
+			uint32_t type = read_le_u32(ptr); ptr += 4;
+			uint32_t utime = read_le_u32(ptr); ptr += 4;
+			uint32_t time = read_le_u32(ptr); ptr += 4;
+			uint32_t usize = read_le_u32(ptr); ptr += 4;
+			uint32_t size = read_le_u32(ptr); ptr += 4;
+
+			std::cout << "type: " << type << "\n"
+				<< "utime: " << utime << "\n"
+				<< "time: " << time << "\n"
+				<< "usize: " << usize << "\n"
+				<< "size: " << size << std::endl;
+
+			if (value.size() < HEADER_SIZE + size) {
+				std::cerr << "数据长度错误" << std::endl;
+				return;
+			}
+			if (usize == 0) {
+				std::cerr << "文件长度错误" << std::endl;
+				return;
+			}
+			uint8_t* databuff = (uint8_t*)malloc(usize);
+
+			if (type == 5) {
+				LDecode((uint8_t*)ptr, size, databuff);
+			}
+			else {
+				if (databuff != nullptr) {
+					memcpy(databuff, ptr, usize);
+				}
+				else {
+					std::cerr << "内存为空" << std::endl;
+					return;
+				}
+			}
+			ofstream outFile("./data/" + fileName, ios::out | ios::binary);
+			outFile.write((char*)databuff, usize);
+			outFile.close();
+
+			free(databuff);
+			databuff = NULL;
+		}
+	}
+
+}
+

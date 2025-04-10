@@ -14,8 +14,10 @@ class DBFS
 public:
 	static DBFS& Instance();
 
-	int open(string name);
-	int close();
+	void open(string name);
+	void close();
+	void outfile(string& key);
+
 
 private:
 	Db* openDB_0(string name, string dbName);
